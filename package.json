@@ -1,0 +1,16 @@
+{
+  "name": "github-actions-ci-cd-example",
+  "version": "1.0.0",
+  "description": "Exemplo básico de pipeline CI/CD com GitHub Actions e Node.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test",
+    "build": "node scripts/build.js",
+    "deploy": "node scripts/deploy.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}

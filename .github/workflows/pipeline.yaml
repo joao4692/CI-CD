@@ -1,0 +1,113 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Testes
+    runs-on: ubuntu-latest 
+
+    steps:
+      - name: Verificar código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Executar testes
+        run: npm test
+
+      - name: Iniciar aplicação local
+        run: |
+          npm start > app.log 2>&1 &
+          APP_PID=$!
+          echo "PID da aplicação: $APP_PID"
+
+          for attempt in {1..20}; do
+            if curl --fail --silent http://127.0.0.1:3000/health > /dev/null; then
+              echo "Aplicação pronta em http://127.0.0.1:3000/health"
+              cat app.log
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo "A aplicação não ficou pronta. Log:"
+          cat app.log
+          kill "$APP_PID"
+          exit 1
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Verificar código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Criar artefato de build
+        run: npm run build
+
+      - name: Salvar artefato
+        uses: actions/upload-artifact@v4
+        with:
+          name: application-build
+          path: dist/
+
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment: production
+
+    steps:
+      - name: Baixar artefato
+        uses: actions/download-artifact@v4
+        with:
+          name: application-build
+          path: dist/
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Deploy para servidor
+        env:
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+          DEPLOY_KEY_PATH: ${{ runner.temp }}/deploy-key
+          DEPLOY_PRIVATE_KEY: ${{ secrets.DEPLOY_PRIVATE_KEY }}
+        working-directory: dist
+        run: |
+          mkdir -p "$(dirname "$DEPLOY_KEY_PATH")"
+          printf '%s' "$DEPLOY_PRIVATE_KEY" > "$DEPLOY_KEY_PATH"
+          chmod 600 "$DEPLOY_KEY_PATH"
+          npm run deploy
